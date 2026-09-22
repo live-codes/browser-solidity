@@ -1,0 +1,27 @@
+Bundled license information:
+
+js-sha3/src/sha3.js:
+  /**
+   * [js-sha3]{@link https://github.com/emn178/js-sha3}
+   *
+   * @version 0.8.0
+   * @author Chen, Yi-Cyuan [emn178@gmail.com]
+   * @copyright Chen, Yi-Cyuan 2015-2018
+   * @license MIT
+   */
+
+@noble/curves/utils.js:
+@noble/curves/abstract/modular.js:
+@noble/curves/abstract/curve.js:
+@noble/curves/abstract/der.js:
+@noble/curves/abstract/weierstrass.js:
+@noble/curves/secp256k1.js:
+@noble/curves/abstract/bls.js:
+@noble/curves/abstract/tower.js:
+@noble/curves/bls12-381.js:
+@noble/curves/nist.js:
+@noble/curves/bn254.js:
+  /*! noble-curves - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+
+@noble/hashes/esm/utils.js:
+  /*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */

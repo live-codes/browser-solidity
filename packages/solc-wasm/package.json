@@ -1,0 +1,53 @@
+{
+	"name": "@live-codes/solc-wasm",
+	"version": "0.1.0",
+	"description": "Compile and run Solidity in the browser and in Node, on solc compiled to WebAssembly",
+	"type": "module",
+	"license": "MIT",
+	"exports": {
+		".": {
+			"node": "./src/index.node.js",
+			"browser": "./src/index.js",
+			"default": "./src/index.js"
+		},
+		"./iife": "./dist/solc-wasm.global.js"
+	},
+	"bin": {
+		"solc-wasm-copy-assets": "./bin/copy-assets.mjs"
+	},
+	"files": [
+		"src",
+		"bin",
+		"scripts",
+		"dist",
+		"THIRD-PARTY-NOTICES.md"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"build:iife": "node scripts/build-iife.mjs",
+		"example": "node scripts/build-iife.mjs && node bin/copy-assets.mjs example/assets && node example/serve.mjs",
+		"test": "node --test \"test/*.test.js\""
+	},
+	"dependencies": {
+		"@ethereumjs/common": "10.1.3",
+		"@ethereumjs/util": "10.1.3",
+		"@ethereumjs/vm": "10.1.3",
+		"ethers": "6.17.0",
+		"solc": "0.8.37"
+	},
+	"devDependencies": {
+		"esbuild": "^0.25.0"
+	},
+	"keywords": [
+		"solidity",
+		"solc",
+		"wasm",
+		"webassembly",
+		"evm",
+		"ethereum",
+		"compiler",
+		"playground"
+	]
+}

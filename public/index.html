@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser Solidity — compile and run Solidity in the tab</title>
+
+    <!--
+      What a bundler would do for us. `@live-codes/solc-wasm` resolves to the package's browser entry
+      point, which spawns the worker that compiles; the rest are the packages it imports by name.
+
+      The three @ethereumjs versions must stay identical to the ones the package pins. `Address` and
+      `Account` cross the vm/util boundary, so two copies of either would break the checks inside the
+      VM - which is why they are pinned exactly rather than by range.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@live-codes/solc-wasm": "/solc-wasm/src/index.js",
+          "@ethereumjs/vm": "https://esm.sh/@ethereumjs/vm@10.1.3",
+          "@ethereumjs/util": "https://esm.sh/@ethereumjs/util@10.1.3",
+          "@ethereumjs/common": "https://esm.sh/@ethereumjs/common@10.1.3",
+          "ethers": "https://esm.sh/ethers@6.17.0"
+        }
+      }
+    </script>
+
+    <style>
+      :root {
+        --bg: #10141c;
+        --panel: #171d28;
+        --panel-2: #1e2634;
+        --line: #2b3648;
+        --text: #dfe6f3;
+        --muted: #8b9ab3;
+        --accent: #6aa9ff;
+        --ok: #4ed08a;
+        --warn: #e5b567;
+        --err: #f2748c;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: baseline;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      h1 { font-size: 15px; margin: 0; font-weight: 600; }
+      h1 span { color: var(--accent); }
+      .spacer { flex: 1; }
+      .muted { color: var(--muted); }
+      #status { padding: 2px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+      #status[data-kind='busy'] { color: var(--warn); }
+      #status[data-kind='ok'] { color: var(--ok); }
+      #status[data-kind='error'] { color: var(--err); }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+        gap: 1px;
+        background: var(--line);
+        min-height: calc(100vh - 52px);
+      }
+      @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+
+      section { background: var(--bg); display: flex; flex-direction: column; min-width: 0; }
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .bar label { color: var(--muted); }
+
+      select, input, textarea, button {
+        font: inherit;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 5px 8px;
+      }
+      select:focus, input:focus, textarea:focus, button:focus { outline: 1px solid var(--accent); }
+      button { cursor: pointer; }
+      button#run {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #08101d;
+        font-weight: 600;
+        padding: 6px 16px;
+      }
+      button#run:disabled { opacity: 0.5; cursor: progress; }
+
+      #editor {
+        flex: 1;
+        min-height: 320px;
+        border: 0;
+        border-radius: 0;
+        resize: none;
+        padding: 14px;
+        background: var(--bg);
+        tab-size: 4;
+        white-space: pre;
+        overflow: auto;
+      }
+
+      .controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; padding: 12px 14px; align-items: center; border-bottom: 1px solid var(--line); }
+      .controls label { color: var(--muted); white-space: nowrap; }
+      .controls select, .controls input { width: 100%; }
+
+      .panes { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+      .pane { border-bottom: 1px solid var(--line); }
+      .pane h2 {
+        margin: 0;
+        padding: 8px 14px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        background: var(--panel);
+      }
+      pre {
+        margin: 0;
+        padding: 12px 14px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: inherit;
+        min-height: 1.5em;
+      }
+      pre:empty::before { content: '—'; color: var(--muted); }
+      #output[data-kind='ok'] { color: var(--text); }
+      #output[data-kind='reverted'], #output[data-kind='error'] { color: var(--err); }
+      #diagnostics[data-kind='error'] { color: var(--err); }
+      #diagnostics[data-kind='warning'] { color: var(--warn); }
+      footer { padding: 10px 18px; color: var(--muted); border-top: 1px solid var(--line); background: var(--panel); }
+      footer code { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Browser<span>Solidity</span></h1>
+      <span class="muted">compiles and runs in this tab — no server, no network round trip</span>
+      <span class="spacer"></span>
+      <span class="muted" id="meta"></span>
+      <span id="status">Ready</span>
+    </header>
+
+    <main>
+      <section>
+        <div class="bar">
+          <label for="examples">Example</label>
+          <select id="examples"></select>
+          <button id="run" type="button">Compile &amp; run</button>
+          <button id="reset" type="button" title="Start from a clean chain and deploy again">Redeploy</button>
+          <span class="spacer"></span>
+          <span class="muted">Ctrl/Cmd + Enter to run</span>
+        </div>
+        <textarea id="editor" spellcheck="false" aria-label="Solidity source"></textarea>
+      </section>
+
+      <section>
+        <div class="controls">
+          <label for="contract">Contract</label>
+          <select id="contract"></select>
+          <label for="fn">Function</label>
+          <select id="fn"></select>
+          <label for="ctorArgs">Constructor args</label>
+          <input id="ctorArgs" placeholder="[] — JSON array" spellcheck="false" />
+          <label for="fnArgs">Call args</label>
+          <input id="fnArgs" placeholder="[] — JSON array" spellcheck="false" />
+          <label for="caller">Caller</label>
+          <input id="caller" placeholder="0x… — msg.sender" spellcheck="false" />
+        </div>
+        <div class="panes">
+          <div class="pane"><h2>Output</h2><pre id="output"></pre></div>
+          <div class="pane"><h2>Compiler diagnostics</h2><pre id="diagnostics"></pre></div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Compiled and run by <code>@live-codes/solc-wasm</code>: <code>solc</code> in a worker, executing on
+      <code>@ethereumjs/vm</code> in this tab. The compiler is served from <code>/solc-assets/</code> and
+      checked against its pinned hash before it runs.
+    </footer>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

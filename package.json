@@ -1,0 +1,13 @@
+{
+  "name": "@live-codes/browser-solidity",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Client-side Solidity playground, built on @live-codes/solc-wasm.",
+  "license": "MIT",
+  "scripts": {
+    "assets": "node packages/solc-wasm/bin/copy-assets.mjs solc-assets",
+    "start": "npm run assets && node serve.js 8127",
+    "check": "node --check serve.js && node --check public/main.js && node --check public/examples.js"
+  }
+}

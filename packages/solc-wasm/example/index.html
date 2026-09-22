@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>@live-codes/solc-wasm — example</title>
+		<style>
+			body {
+				font: 13px/1.5 ui-monospace, monospace;
+				margin: 0;
+				padding: 18px;
+				background: #10141c;
+				color: #dfe6f3;
+			}
+			h1 { font-size: 15px; margin: 0 0 4px; }
+			h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: #8b9ab3; margin: 22px 0 6px; }
+			p { color: #8b9ab3; margin: 0 0 10px; }
+			button { font: inherit; padding: 5px 14px; border-radius: 6px; border: 1px solid #2b3648; background: #1e2634; color: inherit; cursor: pointer; }
+			button:disabled { opacity: 0.5; cursor: progress; }
+			pre { background: #171d28; border: 1px solid #2b3648; border-radius: 6px; padding: 12px; white-space: pre-wrap; min-height: 3em; }
+			pre[data-kind="error"] { color: #f2748c; }
+			pre[data-kind="ok"] { color: #dfe6f3; }
+		</style>
+	</head>
+	<body>
+		<h1>@live-codes/solc-wasm</h1>
+		<p>
+			Two ways in. Both compile in a classic worker and deploy on an in-page EVM; neither talks to a
+			server.
+		</p>
+
+		<h2>1. Classic worker, full bundle (the LiveCodes shape)</h2>
+		<p><code>importScripts('solc-wasm.global.js')</code> then <code>self.solcWasm.createCompiler()</code>.</p>
+		<button id="runIife" type="button">Run in the bundled worker</button>
+		<pre id="iife"></pre>
+
+		<h2>2. Module entry point, which spawns its own worker</h2>
+		<p>
+			<code>import { createCompiler } from '../src/index.js'</code> — the compiler goes to a worker the
+			entry point owns, the EVM stays here.
+		</p>
+		<button id="runEsm" type="button">Run through the module entry</button>
+		<pre id="esm"></pre>
+
+		<script type="importmap">
+			{
+				"imports": {
+					"@ethereumjs/vm": "https://esm.sh/@ethereumjs/vm@10.1.3",
+					"@ethereumjs/util": "https://esm.sh/@ethereumjs/util@10.1.3",
+					"@ethereumjs/common": "https://esm.sh/@ethereumjs/common@10.1.3",
+					"ethers": "https://esm.sh/ethers@6.17.0"
+				}
+			}
+		</script>
+
+		<script type="module">
+			const dataset = document.documentElement.dataset;
+
+			const SOURCE = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract Counter {
+    event Incremented(uint256 value);
+
+    uint256 public count;
+
+    function increment() public {
+        count += 1;
+        emit Incremented(count);
+    }
+
+    function current() public view returns (uint256) {
+        return count;
+    }
+}
+`;
+
+			const report = (pre, result, error) => {
+				if (error) {
+					pre.dataset.kind = 'error';
+					pre.textContent = error;
+					return;
+				}
+				pre.dataset.kind = result.exitCode ? 'error' : 'ok';
+				pre.textContent = [
+					`solc ${result.solcVersion}  evm ${result.evmVersion}`,
+					`deployed=${result.deployed} address=${result.address}`,
+					...result.stdout,
+					result.errors.length ? `\nerrors:\n${result.errors.join('\n')}` : ''
+				].join('\n');
+			};
+
+			// --- 1. the full bundle, in a classic worker this page owns -------------------
+			const iife = document.getElementById('iife');
+			// Absolute, because the page is served at `/` and a relative `./worker.js` would resolve
+			// against that rather than against the directory the example lives in.
+			const worker = new Worker('/example/worker.js');
+			let nextId = 0;
+			const pending = new Map();
+			const status = (value) => {
+				dataset.iifeStatus = value;
+			};
+
+			worker.onmessage = (event) => {
+				if (event.data.type === 'status') {
+					status(event.data.value);
+					return;
+				}
+				const request = pending.get(event.data.id);
+				if (!request) return;
+				pending.delete(event.data.id);
+				event.data.ok ? request.resolve(event.data.result) : request.reject(new Error(event.data.error));
+			};
+
+			// Without this a worker that fails to load stalls forever with nothing to show for it.
+			worker.onerror = (event) => {
+				const message = `the worker failed: ${event.message || 'no message'}`;
+				status(message);
+				for (const request of pending.values()) request.reject(new Error(message));
+				pending.clear();
+			};
+
+			const runInWorker = (source, options) =>
+				new Promise((resolve, reject) => {
+					const id = (nextId += 1);
+					pending.set(id, { resolve, reject });
+					worker.postMessage({ id, source, options });
+				});
+
+			const runIife = async () => {
+				const button = document.getElementById('runIife');
+				button.disabled = true;
+				dataset.iifeStage = 'running';
+				try {
+					// Two runs: the second must reuse the deployment, so `count` survives.
+					const first = await runInWorker(SOURCE, { fn: 'increment()' });
+					const second = await runInWorker(SOURCE, { fn: 'current()' });
+					report(iife, second);
+					dataset.iifeResult = `${second.deployed}/${second.returnValue}/${second.events.length}`;
+					dataset.iifeStage = 'done';
+				} catch (error) {
+					report(iife, null, `${error.message}`);
+					dataset.iifeResult = 'error';
+					dataset.iifeStage = 'error';
+				} finally {
+					button.disabled = false;
+				}
+			};
+
+			// --- 2. the module entry point, which spawns its own worker ------------------
+			const esm = document.getElementById('esm');
+			let esmCompiler = null;
+
+			const runEsm = async () => {
+				const button = document.getElementById('runEsm');
+				button.disabled = true;
+				dataset.esmStage = 'running';
+				try {
+					const { createCompiler } = await import('/src/index.js');
+					esmCompiler ??= await createCompiler({ baseUrl: '/example/assets/' });
+					const result = await esmCompiler.run(SOURCE, { fn: 'increment()' });
+					report(esm, result);
+					dataset.esmResult = `${result.deployed}/${result.contract}/${result.events[0]?.name}`;
+					dataset.esmStage = 'done';
+				} catch (error) {
+					report(esm, null, `${error.message}`);
+					dataset.esmResult = 'error';
+					dataset.esmStage = 'error';
+				} finally {
+					button.disabled = false;
+				}
+			};
+
+			document.getElementById('runIife').addEventListener('click', runIife);
+			document.getElementById('runEsm').addEventListener('click', runEsm);
+
+			// Exposed so scripted checks can drive the page without string selectors.
+			window.runIife = runIife;
+			window.runEsm = runEsm;
+			window.iife = iife;
+			window.esm = esm;
+			dataset.stage = 'ready';
+		</script>
+	</body>
+</html>
